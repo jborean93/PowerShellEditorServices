@@ -3,6 +3,7 @@
 
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.PowerShell.EditorServices.Handlers;
 using Microsoft.PowerShell.EditorServices.Utility;
 
 namespace Microsoft.PowerShell.EditorServices.Services
@@ -38,6 +39,8 @@ namespace Microsoft.PowerShell.EditorServices.Services
 
         // This gets set at the end of the Launch/Attach handler which set debug state.
         internal TaskCompletionSource<bool> ServerStarted { get; set; }
+
+        internal PathMapping[] PathMappings { get; set; }
 
         internal int ReleaseSetBreakpointHandle() => _setBreakpointInProgressHandle.Release();
 

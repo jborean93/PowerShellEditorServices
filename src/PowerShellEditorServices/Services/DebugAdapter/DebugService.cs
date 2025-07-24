@@ -137,7 +137,13 @@ namespace Microsoft.PowerShell.EditorServices.Services
 
             _psesHost.Runspace.ThrowCancelledIfUnusable();
             // Make sure we're using the remote script path
-            if (_psesHost.CurrentRunspace.IsOnRemoteMachine && _remoteFileManager is not null)
+
+            if (_breakpointService.TryGetRemoteMappedPath(scriptPath, out string remoteMappedPath))
+            {
+                _logger.LogTrace($"Remapping breakpoint path '{scriptPath}' -> '{remoteMappedPath}'.");
+                scriptPath = remoteMappedPath;
+            }
+            else if (_psesHost.CurrentRunspace.IsOnRemoteMachine && _remoteFileManager is not null)
             {
                 if (!_remoteFileManager.IsUnderRemoteTempPath(scriptPath))
                 {
@@ -164,7 +170,7 @@ namespace Microsoft.PowerShell.EditorServices.Services
                     await _breakpointService.RemoveAllBreakpointsAsync(scriptFile.FilePath).ConfigureAwait(false);
                 }
 
-                return await _breakpointService.SetBreakpointsAsync(escapedScriptPath, breakpoints).ConfigureAwait(false);
+                return await _breakpointService.SetBreakpointsAsync(scriptPath, escapedScriptPath, breakpoints).ConfigureAwait(false);
             }
 
             return await dscBreakpoints
@@ -877,6 +883,10 @@ namespace Microsoft.PowerShell.EditorServices.Services
                 {
                     stackFrameDetailsEntry.ScriptPath = scriptNameOverride;
                 }
+                else if (_breakpointService.TryGetLocalMappedPath(stackFrameScriptPath, out string mappedPath))
+                {
+                    stackFrameDetailsEntry.ScriptPath = mappedPath;
+                }
                 else if (_psesHost.CurrentRunspace.IsOnRemoteMachine
                     && _remoteFileManager is not null
                     && !string.Equals(stackFrameScriptPath, StackFrameDetails.NoFileScriptPath))
@@ -890,6 +900,9 @@ namespace Microsoft.PowerShell.EditorServices.Services
 
             stackFrameDetails = stackFrameDetailList.ToArray();
         }
+
+        internal bool TryGetLocalMappedPath(string scriptPath, out string mappedPath)
+            => _breakpointService.TryGetLocalMappedPath(scriptPath, out mappedPath);
 
         private static string TrimScriptListingLine(PSObject scriptLineObj, ref int prefixLength)
         {
@@ -980,11 +993,19 @@ namespace Microsoft.PowerShell.EditorServices.Services
                 // Begin call stack and variables fetch. We don't need to block here.
                 StackFramesAndVariablesFetched = FetchStackFramesAndVariablesAsync(noScriptName ? localScriptPath : null);
 
+                bool isRemapped = false;
+                if (_breakpointService.TryGetLocalMappedPath(localScriptPath, out string mappedPath))
+                {
+                    localScriptPath = mappedPath;
+                    isRemapped = true;
+                }
+
                 // If this is a remote connection and the debugger stopped at a line
                 // in a script file, get the file contents
                 if (_psesHost.CurrentRunspace.IsOnRemoteMachine
                     && _remoteFileManager is not null
-                    && !noScriptName)
+                    && !noScriptName
+                    && !isRemapped)
                 {
                     localScriptPath =
                         await _remoteFileManager.FetchRemoteFileAsync(

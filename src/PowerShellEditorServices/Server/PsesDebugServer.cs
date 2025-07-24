@@ -3,6 +3,7 @@
 
 using System;
 using System.IO;
+using System.Management.Automation;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.PowerShell.EditorServices.Handlers;
@@ -102,6 +103,14 @@ namespace Microsoft.PowerShell.EditorServices.Server
                         {
                             _psesHost.DebugServer = server;
                         }
+
+                        PSCommand setPsDebug = new PSCommand();
+                        setPsDebug.AddCommand("Microsoft.PowerShell.Utility\\Set-Variable")
+                                  .AddParameter("Name", "__psEditorServices_DebugServer")
+                                  .AddParameter("Value", server)
+                                  .AddParameter("Scope", "Global");
+                        // .AddParameter("Option", "ReadOnly,Constant");
+                        await _psesHost.ExecutePSCommandAsync(setPsDebug, cancellationToken).ConfigureAwait(false);
 
                         // Clear any existing breakpoints before proceeding.
                         BreakpointService breakpointService = server.GetService<BreakpointService>();

@@ -81,6 +81,12 @@ namespace Microsoft.PowerShell.EditorServices.Handlers
     {
         public string ComputerName { get; set; }
 
+        /// <summary>
+        /// Gets or sets a boolean value that determines whether to create a temporary
+        /// Extension Terminal for the debug session. Default is false.
+        /// </summary>
+        public bool CreateTemporaryIntegratedConsole { get; set; }
+
         public int ProcessId { get; set; }
 
         public int RunspaceId { get; set; }
@@ -88,6 +94,26 @@ namespace Microsoft.PowerShell.EditorServices.Handlers
         public string RunspaceName { get; set; }
 
         public string CustomPipeName { get; set; }
+
+        /// <summary>
+        /// Gets or sets the path mappings for the session.
+        /// These paths are used to translate the local paths seen by the debug client to
+        /// the remote paths used in the attached PSSession.
+        /// </summary>
+        public PathMapping[] PathMappings { get; set; }
+    }
+
+    internal record PathMapping
+    {
+        /// <summary>
+        /// Gets or sets the local root path for this mapping.
+        /// </summary>
+        public string LocalRoot { get; set; }
+
+        /// <summary>
+        /// Gets or sets the remote root path for this mapping.
+        /// </summary>
+        public string RemoteRoot { get; set; }
     }
 
     internal class LaunchAndAttachHandler : ILaunchHandler<PsesLaunchRequestArguments>, IAttachHandler<PsesAttachRequestArguments>, IOnDebugAdapterServerStarted
@@ -247,6 +273,8 @@ namespace Microsoft.PowerShell.EditorServices.Handlers
             // The debugger has officially started. We use this to later check if we should stop it.
             ((PsesInternalHost)_executionService).DebugContext.IsActive = true;
             _debugStateService.IsAttachSession = true;
+            _debugStateService.IsUsingTempIntegratedConsole = request.CreateTemporaryIntegratedConsole;
+            _debugStateService.PathMappings = request.PathMappings;
             _debugEventHandlerService.RegisterEventHandlers();
 
             bool processIdIsSet = request.ProcessId != 0;
@@ -486,6 +514,15 @@ namespace Microsoft.PowerShell.EditorServices.Handlers
                         if (_debugStateService.IsRemoteAttach)
                         {
                             await _executionService.ExecutePSCommandAsync(new PSCommand().AddCommand("Exit-PSSession"), CancellationToken.None).ConfigureAwait(false);
+                        }
+
+                        if (_debugStateService.IsUsingTempIntegratedConsole)
+                        {
+                            await _executionService.ExecutePSCommandAsync(
+                                new PSCommand().AddScript("[Environment]::Exit(0)"),
+                                CancellationToken.None,
+                                PowerShellExecutionOptions.ImmediateInteractive)
+                                .ConfigureAwait(false);
                         }
                     }
                     catch (Exception e)

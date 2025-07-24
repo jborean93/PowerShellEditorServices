@@ -8,6 +8,7 @@ using System.Management.Automation;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Microsoft.PowerShell.EditorServices.Handlers;
 using Microsoft.PowerShell.EditorServices.Logging;
 using Microsoft.PowerShell.EditorServices.Services.DebugAdapter;
 using Microsoft.PowerShell.EditorServices.Services.PowerShell;
@@ -18,6 +19,38 @@ namespace Microsoft.PowerShell.EditorServices.Services
 {
     internal class BreakpointService
     {
+        private readonly string _setPsBreakpointScript = """
+            [CmdletBinding()]
+            param (
+                [Parameter(Mandatory)]
+                [string]
+                $Script,
+
+                [Parameter()]
+                [int]
+                $Line,
+
+                [Parameter()]
+                [int]
+                $Column,
+
+                [Parameter()]
+                [ScriptBlock]
+                $Action
+            )
+
+            $lineCtor = [System.Management.Automation.LineBreakpoint].GetConstructor(
+                [System.Reflection.BindingFlags]'NonPublic, Instance',
+                $null,
+                [type[]]@([string], [int], [int], [scriptblock]),
+                $null)
+
+            $b = $lineCtor.Invoke(@($Script, $Line, $Column, $Action))
+            [Runspace]::DefaultRunspace.Debugger.SetBreakpoints(
+                [System.Management.Automation.Breakpoint[]]@($b))
+
+            $b
+            """;
         private readonly ILogger<BreakpointService> _logger;
         private readonly IInternalPowerShellExecutionService _executionService;
         private readonly PsesInternalHost _editorServicesHost;
@@ -57,7 +90,7 @@ namespace Microsoft.PowerShell.EditorServices.Services
                 .ConfigureAwait(false);
         }
 
-        public async Task<IReadOnlyList<BreakpointDetails>> SetBreakpointsAsync(string escapedScriptPath, IReadOnlyList<BreakpointDetails> breakpoints)
+        public async Task<IReadOnlyList<BreakpointDetails>> SetBreakpointsAsync(string scriptPath, string escapedScriptPath, IReadOnlyList<BreakpointDetails> breakpoints)
         {
             if (BreakpointApiUtils.SupportsBreakpointApis(_editorServicesHost.CurrentRunspace))
             {
@@ -65,7 +98,7 @@ namespace Microsoft.PowerShell.EditorServices.Services
                 {
                     try
                     {
-                        BreakpointApiUtils.SetBreakpoint(_editorServicesHost.Runspace.Debugger, breakpointDetails, _debugStateService.RunspaceId);
+                        BreakpointApiUtils.SetBreakpoint(_editorServicesHost.Runspace.Debugger, breakpointDetails, _debugStateService.RunspaceId, sourceOverride: scriptPath);
                     }
                     catch (InvalidOperationException e)
                     {
@@ -114,8 +147,12 @@ namespace Microsoft.PowerShell.EditorServices.Services
                     psCommand.AddStatement();
                 }
 
+                // psCommand
+                //     .AddCommand(@"Microsoft.PowerShell.Utility\Set-PSBreakpoint")
+                //     .AddParameter("Script", escapedScriptPath)
+                //     .AddParameter("Line", breakpoint.LineNumber);
                 psCommand
-                    .AddCommand(@"Microsoft.PowerShell.Utility\Set-PSBreakpoint")
+                    .AddScript(_setPsBreakpointScript, useLocalScope: true)
                     .AddParameter("Script", escapedScriptPath)
                     .AddParameter("Line", breakpoint.LineNumber);
 
@@ -251,6 +288,10 @@ namespace Microsoft.PowerShell.EditorServices.Services
 
                 if (!string.IsNullOrEmpty(scriptPath))
                 {
+                    if (TryGetRemoteMappedPath(scriptPath, out string mappedPath))
+                    {
+                        scriptPath = mappedPath;
+                    }
                     psCommand.AddParameter("Script", scriptPath);
                 }
 
@@ -294,6 +335,48 @@ namespace Microsoft.PowerShell.EditorServices.Services
                     .AddParameter("Id", breakpoints.Select(b => b.Id).ToArray());
                 await _executionService.ExecutePSCommandAsync<object>(psCommand, CancellationToken.None).ConfigureAwait(false);
             }
+        }
+
+        public bool TryGetRemoteMappedPath(string localPath, out string mappedPath)
+        {
+            mappedPath = null;
+
+            if (_debugStateService.PathMappings is null || _debugStateService.PathMappings.Length == 0)
+            {
+                return false;
+            }
+
+            foreach (PathMapping mapping in _debugStateService.PathMappings)
+            {
+                if (localPath.StartsWith(mapping.LocalRoot))
+                {
+                    mappedPath = mapping.RemoteRoot + localPath.Substring(mapping.LocalRoot.Length);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public bool TryGetLocalMappedPath(string remotePath, out string mappedPath)
+        {
+            mappedPath = null;
+
+            if (_debugStateService.PathMappings is null || _debugStateService.PathMappings.Length == 0)
+            {
+                return false;
+            }
+
+            foreach (PathMapping mapping in _debugStateService.PathMappings)
+            {
+                if (remotePath.StartsWith(mapping.RemoteRoot))
+                {
+                    mappedPath = mapping.LocalRoot + remotePath.Substring(mapping.RemoteRoot.Length);
+                    return true;
+                }
+            }
+
+            return false;
         }
     }
 }

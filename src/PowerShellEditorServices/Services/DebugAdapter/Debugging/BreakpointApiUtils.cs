@@ -110,7 +110,7 @@ namespace Microsoft.PowerShell.EditorServices.Services.DebugAdapter
 
         #region Public Static Methods
 
-        public static Breakpoint SetBreakpoint(Debugger debugger, BreakpointDetailsBase breakpoint, int? runspaceId = null)
+        public static Breakpoint SetBreakpoint(Debugger debugger, BreakpointDetailsBase breakpoint, int? runspaceId = null, string sourceOverride = null)
         {
             ScriptBlock actionScriptBlock = null;
             string logMessage = breakpoint is BreakpointDetails bd ? bd.LogMessage : null;
@@ -136,7 +136,7 @@ namespace Microsoft.PowerShell.EditorServices.Services.DebugAdapter
             {
                 BreakpointDetails lineBreakpoint => SetLineBreakpointDelegate(
                     debugger,
-                    lineBreakpoint.Source,
+                    sourceOverride ?? lineBreakpoint.Source,
                     lineBreakpoint.LineNumber,
                     lineBreakpoint.ColumnNumber ?? 0,
                     actionScriptBlock,

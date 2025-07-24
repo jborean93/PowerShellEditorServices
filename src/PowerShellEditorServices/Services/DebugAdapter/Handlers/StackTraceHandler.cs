@@ -38,7 +38,12 @@ internal class StackTraceHandler(DebugService debugService) : IStackTraceHandler
         InvocationInfo invocationInfo = debugService.CurrentDebuggerStoppedEventArgs?.OriginalEvent?.InvocationInfo
             ?? throw new RpcErrorException(0, null!, "InvocationInfo was not available on CurrentDebuggerStoppedEvent args. This is a bug and you should report it.");
 
-        StackFrame breakpointLabel = CreateBreakpointLabel(invocationInfo);
+        string breakpointSourcePath = invocationInfo.ScriptName;
+        if (debugService.TryGetLocalMappedPath(breakpointSourcePath, out string mappedPath))
+        {
+            breakpointSourcePath = mappedPath;
+        }
+        StackFrame breakpointLabel = CreateBreakpointLabel(breakpointSourcePath, invocationInfo);
 
         if (skip == 0 && take == 1) // This indicates the client is doing an initial fetch, so we want to return quickly to unblock the UI and wait on the remaining stack frames for the subsequent requests.
         {
@@ -116,13 +121,13 @@ internal class StackTraceHandler(DebugService debugService) : IStackTraceHandler
         };
     }
 
-    public static StackFrame CreateBreakpointLabel(InvocationInfo invocationInfo, int id = 0) => new()
+    public static StackFrame CreateBreakpointLabel(string sourcePath, InvocationInfo invocationInfo, int id = 0) => new()
     {
         Name = "<Breakpoint>",
         Id = id,
         Source = new()
         {
-            Path = invocationInfo.ScriptName
+            Path = sourcePath,
         },
         Line = invocationInfo.ScriptLineNumber,
         Column = invocationInfo.OffsetInLine,
